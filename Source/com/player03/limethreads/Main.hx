@@ -8,7 +8,7 @@ import libnoise.generator.Sphere;
 import libnoise.generator.Voronoi;
 import libnoise.ModuleBase;
 import libnoise.QualityMode;
-import lime.system.BackgroundWorker;
+import lime.system.ThreadPool;
 import openfl.display.Bitmap;
 import openfl.display.BitmapData;
 import openfl.display.Sprite;
@@ -28,7 +28,7 @@ class Main extends Sprite {
 	private var index:Int = 0;
 	private var generators:Array<Generator>;
 	
-	private var bgWorker:BackgroundWorker;
+	private var threadPool:ThreadPool;
 	private var workStartTime:Float = 0;
 	
 	public function new() {
@@ -73,9 +73,9 @@ class Main extends Sprite {
 		stage.addEventListener(MouseEvent.CLICK, onClick);
 		stage.addEventListener(MouseEvent.RIGHT_CLICK, onClick);
 		
-		bgWorker = new BackgroundWorker(3/4);
-		bgWorker.onProgress.add(showProgress);
-		bgWorker.onComplete.add(onComplete);
+		threadPool = new ThreadPool(generateNoise, 1, 3/4);
+		threadPool.onProgress.add(showProgress);
+		threadPool.onComplete.add(onComplete);
 		
 		//Generate the first pattern.
 		onClick(null);
@@ -97,6 +97,10 @@ class Main extends Sprite {
 	 * the generator at that index.
 	 */
 	private function onClick(e:MouseEvent):Void {
+		if(StringTools.startsWith(text.text, "Working")) {
+			return;
+		}
+		
 		if(e != null) {
 			index += e.type == MouseEvent.CLICK ? 1 : -1;
 			if(index >= generators.length) {
@@ -109,7 +113,7 @@ class Main extends Sprite {
 		showProgress(0);
 		workStartTime = Timer.stamp();
 		
-		bgWorker.run(generateNoise, {
+		threadPool.queue({
 			width: bitmap.bitmapData.width,
 			height: bitmap.bitmapData.height,
 			generator: generators[index]
@@ -153,12 +157,12 @@ class Main extends Sprite {
 		
 		//If done, send the bytes. Otherwise, send a progress update.
 		if(state.y >= state.height) {
-			bgWorker.sendComplete({
+			threadPool.sendComplete({
 				generator: state.generator,
 				bytes: state.bytes
 			});
 		} else {
-			bgWorker.sendProgress(state.y);
+			threadPool.sendProgress(state.y);
 		}
 	}
 	
