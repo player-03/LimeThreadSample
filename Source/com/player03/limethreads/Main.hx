@@ -8,7 +8,7 @@ import libnoise.generator.Sphere;
 import libnoise.generator.Voronoi;
 import libnoise.ModuleBase;
 import libnoise.QualityMode;
-import lime.system.ThreadPool;
+import lime.app.Future;
 import openfl.display.Bitmap;
 import openfl.display.BitmapData;
 import openfl.display.Sprite;
@@ -28,7 +28,7 @@ class Main extends Sprite {
 	private var index:Int = 0;
 	private var generators:Array<Generator>;
 	
-	private var threadPool:ThreadPool;
+	private var future:Future<{ generator: Generator, bytes: ByteArray }>;
 	private var workStartTime:Float = 0;
 	
 	public function new() {
@@ -73,9 +73,8 @@ class Main extends Sprite {
 		stage.addEventListener(MouseEvent.CLICK, onClick);
 		stage.addEventListener(MouseEvent.RIGHT_CLICK, onClick);
 		
-		threadPool = new ThreadPool(generateNoise, 1, 3/4);
-		threadPool.onProgress.add(showProgress);
-		threadPool.onComplete.add(onComplete);
+		FutureWork.minThreads = 1;
+		FutureWork.recreateThreadPool(3/4);
 		
 		//Generate the first pattern.
 		onClick(null);
@@ -97,7 +96,7 @@ class Main extends Sprite {
 	 * the generator at that index.
 	 */
 	private function onClick(e:MouseEvent):Void {
-		if(StringTools.startsWith(text.text, "Working")) {
+		if(future != null) {
 			return;
 		}
 		
@@ -110,28 +109,21 @@ class Main extends Sprite {
 			}
 		}
 		
-		showProgress(0);
+		text.text = 'Working on: ${generators[index].name}';
 		workStartTime = Timer.stamp();
 		
-		threadPool.queue({
+		future = new Future(generateNoise.bind({
 			width: bitmap.bitmapData.width,
 			height: bitmap.bitmapData.height,
 			generator: generators[index]
-		});
-	}
-	
-	/**
-	 * Displays the upcoming pattern's name. This no longer fails now that it
-	 * executes asynchronously.
-	 */
-	private function showProgress(linesDone:Int):Void {
-		text.text = 'Working on: ${generators[index].name}\nLines done: ${linesDone}/${bitmap.bitmapData.height}';
+		}));
+		future.onComplete(onComplete);
 	}
 	
 	/**
 	 * Generates the noise pattern and passes it to `onComplete()`.
 	 */
-	private function generateNoise(state:{ width:Int, height:Int, generator:Generator, ?y:Int, ?bytes:ByteArray }):Void {
+	private function generateNoise(state:{ width:Int, height:Int, generator:Generator, ?y:Int, ?bytes:ByteArray }):Null<{ generator: Generator, bytes: ByteArray }> {
 		//Allocate enough 32-bit ints to store every pixel.
 		if(state.bytes == null) {
 			state.bytes = new ByteArray(state.width * state.height);
@@ -155,14 +147,14 @@ class Main extends Sprite {
 			}
 		}
 		
-		//If done, send the bytes. Otherwise, send a progress update.
+		//If done, send the bytes.
 		if(state.y >= state.height) {
-			threadPool.sendComplete({
+			return {
 				generator: state.generator,
 				bytes: state.bytes
-			});
+			};
 		} else {
-			threadPool.sendProgress(state.y);
+			return null;
 		}
 	}
 	
@@ -181,6 +173,8 @@ class Main extends Sprite {
 		text.text = "Pattern: " + message.generator.name
 			+ "\nGenerated in: " + timeString + "s"
 			+ "\nClick to continue";
+		
+		future = null;
 	}
 }
 
