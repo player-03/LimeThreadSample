@@ -17,6 +17,7 @@ import openfl.text.TextField;
 import openfl.text.TextFormat;
 import openfl.utils.Assets;
 import openfl.utils.ByteArray;
+import sys.thread.Thread;
 
 class Main extends Sprite {
 	private var bitmap:Bitmap;
@@ -106,12 +107,12 @@ class Main extends Sprite {
 		
 		showProgress();
 		
-		generateNoise(generators[index]);
+		Thread.create(generateNoise.bind(generators[index]));
 	}
 	
 	/**
-	 * Displays the upcoming pattern's name. This fails at the moment because
-	 * the screen freezes until the whole job is complete.
+	 * Displays the upcoming pattern's name. This no longer fails now that
+	 * threads are available.
 	 */
 	private function showProgress():Void {
 		text.text = 'Working on: ${generators[index].name}';
