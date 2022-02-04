@@ -1,0 +1,29 @@
+import hxp.*;
+import lime.tools.*;
+
+class Project extends HXProject {
+	public function new() {
+		super();
+		
+		meta.title = "Lime Thread Sample";
+		meta.packageName = "com.player03.limethreads";
+		meta.version = "1.0.0";
+		meta.company = "player_03";
+		
+		app.main="com.player03.limethreads.Main";
+		app.path="Export";
+		app.file="LimeThreadSample";
+		
+		if(target != HTML5) {
+			window.width = 800;
+			window.height = 800;
+		}
+		
+		haxelibs.push(new Haxelib("openfl"));
+		haxelibs.push(new Haxelib("libnoise"));
+		
+		sources.push("Source");
+		
+		includeAssets("Assets", "assets");
+	}
+}
