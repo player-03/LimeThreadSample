@@ -8,6 +8,7 @@ import libnoise.generator.Sphere;
 import libnoise.generator.Voronoi;
 import libnoise.ModuleBase;
 import libnoise.QualityMode;
+import lime.system.BackgroundWorker;
 import openfl.display.Bitmap;
 import openfl.display.BitmapData;
 import openfl.display.Sprite;
@@ -27,15 +28,16 @@ class Main extends Sprite {
 	private var index:Int = 0;
 	private var generators:Array<Generator>;
 	
+	private var bgWorker:BackgroundWorker;
+	private var workStartTime:Float = 0;
+	
 	public function new() {
 		super();
 		
-		//Set up the bitmap to which patterns will be drawn.
 		bitmap = new Bitmap(new BitmapData(stage.stageWidth, stage.stageHeight, false, 0xFFFFFFFF));
 		addChild(bitmap);
 		rect = new Rectangle(0, 0, bitmap.bitmapData.width, bitmap.bitmapData.height);
 		
-		//Set up a text field to display progress and results.
 		text = new TextField();
 		text.background = true;
 		text.backgroundColor = 0xFFFFFF;
@@ -59,17 +61,21 @@ class Main extends Sprite {
 		//Use libnoise's most interesting patterns, but start with a very simple
 		//one so the app doesn't take too long to begin.
 		generators = [
-			new Generator(new Sphere(frequency)),
-			new Generator(new RidgedMultifractal(frequency, persistence, 1, seed, quality)),
-			new Generator(new Perlin(frequency, lacunarity, persistence, octaves, seed, quality)),
-			new Generator(new Billow(frequency, lacunarity, persistence, octaves, seed, quality)),
+			new Generator(new Sphere(frequency), 10000),
+			new Generator(new RidgedMultifractal(frequency, persistence, 1, seed, quality), 5000),
+			new Generator(new Perlin(frequency, lacunarity, persistence, octaves, seed, quality), 1500),
+			new Generator(new Billow(frequency, lacunarity, persistence, octaves, seed, quality), 1500),
 			//In HTML5, Voronoi diagrams break if the seed gets too big.
-			new Generator(new Voronoi(frequency * 2, 1, seed & 0x3FF, true), "Voronoi (distance)"),
-			new Generator(new Voronoi(frequency * 2, 1, seed & 0x3FF, false))
+			new Generator(new Voronoi(frequency * 2, 1, seed & 0x3FF, true), 500, "Voronoi (distance)"),
+			new Generator(new Voronoi(frequency * 2, 1, seed & 0x3FF, false), 500)
 		];
 		
 		stage.addEventListener(MouseEvent.CLICK, onClick);
 		stage.addEventListener(MouseEvent.RIGHT_CLICK, onClick);
+		
+		bgWorker = new BackgroundWorker(3/4);
+		bgWorker.onProgress.add(showProgress);
+		bgWorker.onComplete.add(onComplete);
 		
 		//Generate the first pattern.
 		onClick(null);
@@ -91,10 +97,6 @@ class Main extends Sprite {
 	 * the generator at that index.
 	 */
 	private function onClick(e:MouseEvent):Void {
-		if(StringTools.startsWith(text.text, "Working")) {
-			return;
-		}
-		
 		if(e != null) {
 			index += e.type == MouseEvent.CLICK ? 1 : -1;
 			if(index >= generators.length) {
@@ -104,49 +106,75 @@ class Main extends Sprite {
 			}
 		}
 		
-		showProgress();
+		showProgress(0);
+		workStartTime = Timer.stamp();
 		
-		generateNoise(generators[index]);
+		bgWorker.run(generateNoise, {
+			width: bitmap.bitmapData.width,
+			height: bitmap.bitmapData.height,
+			generator: generators[index]
+		});
 	}
 	
 	/**
-	 * Displays the upcoming pattern's name. This fails at the moment because
-	 * the screen freezes until the whole job is complete.
+	 * Displays the upcoming pattern's name. This no longer fails now that it
+	 * executes asynchronously.
 	 */
-	private function showProgress():Void {
-		text.text = 'Working on: ${generators[index].name}';
+	private function showProgress(linesDone:Int):Void {
+		text.text = 'Working on: ${generators[index].name}\nLines done: ${linesDone}/${bitmap.bitmapData.height}';
 	}
 	
 	/**
-	 * Generates the noise pattern, draws it to `bitmap`, and displays the time
-	 * taken as text.
+	 * Generates the noise pattern and passes it to `onComplete()`.
 	 */
-	private function generateNoise(generator:Generator):Void {
-		var startTime:Float = Timer.stamp();
-		
+	private function generateNoise(state:{ width:Int, height:Int, generator:Generator, ?y:Int, ?bytes:ByteArray }):Void {
 		//Allocate enough 32-bit ints to store every pixel.
-		var bytes:ByteArray = new ByteArray(bitmap.bitmapData.width * bitmap.bitmapData.height);
-		bytes.position = 0;
+		if(state.bytes == null) {
+			state.bytes = new ByteArray(state.width * state.height);
+			state.bytes.position = 0;
+		}
+		
+		//Determine how many rows to process this time.
+		var startY:Int = state.y != null ? state.y : 0;
+		state.y = startY + Math.ceil(state.generator.pixelsPerFrame / state.width);
+		if(state.y > state.height) {
+			state.y = state.height;
+		}
 		
 		//Run `getNormalizedValue()` for every pixel, going left-to-right then
 		//top-to-bottom (the same way English text is arranged).
-		for(y in 0...bitmap.bitmapData.height) {
-			for(x in 0...bitmap.bitmapData.width) {
-				var value:Int = Std.int(0xFF * generator.getNormalizedValue(x, y));
+		for(y in startY...state.y) {
+			for(x in 0...state.width) {
+				var value:Int = Std.int(0xFF * state.generator.getNormalizedValue(x, y));
 				
-				bytes.writeInt(value << 16 | value << 8 | value);
+				state.bytes.writeInt(value << 16 | value << 8 | value);
 			}
 		}
 		
+		//If done, send the bytes. Otherwise, send a progress update.
+		if(state.y >= state.height) {
+			bgWorker.sendComplete({
+				generator: state.generator,
+				bytes: state.bytes
+			});
+		} else {
+			bgWorker.sendProgress(state.y);
+		}
+	}
+	
+	/**
+	 * Draws the pattern to `bitmap` and displays the time taken as text.
+	 */
+	private function onComplete(message: { generator:Generator, bytes:ByteArray }):Void {
 		//Draw the image.
-		bytes.position = 0;
-		bitmap.bitmapData.setPixels(rect, bytes);
-		bytes.clear();
+		message.bytes.position = 0;
+		bitmap.bitmapData.setPixels(rect, message.bytes);
+		message.bytes.clear();
 		
 		//Show how long it took.
-		var elapsedTime:Float = Timer.stamp() - startTime;
+		var elapsedTime:Float = Timer.stamp() - workStartTime;
 		var timeString:String = Std.string(Std.int(elapsedTime * 100) / 100);
-		text.text = "Pattern: " + generator.name
+		text.text = "Pattern: " + message.generator.name
 			+ "\nGenerated in: " + timeString + "s"
 			+ "\nClick to continue";
 	}
@@ -155,11 +183,13 @@ class Main extends Sprite {
 class Generator {
 	public var name:String;
 	public var module:ModuleBase;
+	public var pixelsPerFrame:Int;
 	
-	public function new(module:ModuleBase, ?name:String) {
+	public function new(module:ModuleBase, pixelsPerFrame:Int, ?name:String) {
 		this.name = name != null ? name
 			: Type.getClassName(Type.getClass(module)).split(".").pop();
 		this.module = module;
+		this.pixelsPerFrame = pixelsPerFrame;
 	}
 	
 	public function getNormalizedValue(x:Float, y:Float, ?z:Float = 0):Float {
