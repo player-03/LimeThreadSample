@@ -1,7 +1,7 @@
 # LimeThreadSample
 Demonstrative code for my [guide to threads in Lime](https://player03.com/openfl/threads-guide/). This sample uses [libnoise](https://github.com/memilian/libnoise/) to draw various patterns. Some of these patterns are very slow, and the main goal of this sample is to show various ways to execute slow operations without causing the app to freeze.
 
-## Synchronous (you are here)
+## [Synchronous](https://github.com/player-03/LimeThreadSample)
 This branch demonstrates the simplest implementation. It runs all code immediately, making no attempt to keep the app from freezing. All other branches build off this one, showing what changes are required to implement each solution.
 
 [You can see this branch in action here](https://player03.com/haxe/demo/threads/synchronous/index.html).
@@ -23,7 +23,7 @@ This branch uses [Lime's `ThreadPool` class](https://api.lime.software/lime/syst
 
 You'll also notice that you can no longer click in the middle of a job, because `ThreadPool` isn't designed to interrupt ongoing jobs. The only options it offers are: (1) queue the job for later, (2) run both jobs side-by-side, or (3) shut everything down permanently. None of these would improve the demo, so they were left out.
 
-## [Future](https://github.com/player-03/LimeThreadSample/tree/Future)
+## Future (you are here)
 This branch uses [Lime's `Future` class](https://api.lime.software/lime/app/Future.html) to await the pattern. This uses `ThreadPool` under the hood, but it has a different API and lacks progress events.
 
 [You can see the HTML5 version in action here](https://player03.com/haxe/demo/threads/future/index.html).
